@@ -88,6 +88,118 @@ impl<T: Into<String>> From<T> for LineInfo {
     }
 }
 
+impl LineInfo {
+    fn query_sequence<T: AsRef<str>>(&self, query_item: T) -> Option<Vec<Vec<usize>>> {
+        let query = query_item.as_ref();
+        let mut positions: Vec<Vec<usize>> = vec![];
+
+        for c in query.chars() {
+            match self.char_map.get(&c) {
+                None => break,
+                Some(list) => {
+                    let to_push;
+                    match positions.last() {
+                        None => {
+                            to_push = list.clone();
+                        },
+                        Some(item) => {
+                            match list.binary_search(&item[0]) {
+                                Ok(idx) => {
+                                    if idx >= list.len() - 1 {
+                                        // line is non-matching
+                                        break;
+                                    } else {
+                                        to_push = list.split_at(idx + 1).1.into();
+                                    }
+                                },
+                                Err(idx) => {
+                                    if idx >= list.len() {
+                                        // line is non-matching
+                                        break;
+                                    } else {
+                                        to_push = list.split_at(idx).1.into();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    positions.push(to_push);
+                }
+            }
+        }
+
+        if positions.len() == query.len() {
+            Some(positions)
+        } else {
+            None
+        }
+    }
+
+    fn query_positions<T: AsRef<str>>(&self, query: T) -> Option<Vec<Vec<usize>>> {
+        match self.query_sequence(query) {
+            None => None,
+            Some(positions) => {
+                // matching line
+                // create our idx vector
+                let mut idx = vec![0; positions.len()];
+                let mut result = vec![];
+                loop {
+                    // check that current configuration is strictly increasing
+                    let mut ignore = false;
+                    {
+                        let mut last_pos = None;
+                        for (i, pos) in idx.iter().enumerate() {
+                            match last_pos {
+                                None => last_pos = Some(positions[i][*pos]),
+                                Some(other) => {
+                                    if other >= positions[i][*pos] {
+                                        ignore = true;
+                                        break;
+                                    } else {
+                                        last_pos = Some(positions[i][*pos]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !ignore {
+                        // add the configuration to the list
+                        result.push(idx.iter().enumerate().map(|(i, pos)| {positions[i][*pos]}).collect());
+                    }
+
+                    // update our position vector
+                    let mut update_idx = idx.len() - 1;
+                    let mut finished = false;
+                    loop {
+                        idx[update_idx] += 1;
+                        if idx[update_idx] >= positions[update_idx].len() {
+                            if update_idx == 0 {
+                                // we're finished with all permutations
+                                finished = true;
+                                break;
+                            } else {
+                                idx[update_idx] = 0;
+                                update_idx -= 1;
+                            }
+                        } else {
+                            // finished updating for this permutation
+                            break;
+                        }
+                    }
+                    if finished {
+                        // finished with everything
+                        break;
+                    }
+                }
+
+                // return result
+                Some(result)
+            }
+        }
+    }
+}
+
 fn main() {
     let history_path = match env::var("HISTFILE") {
         Ok(p) => p,
@@ -118,8 +230,6 @@ fn main() {
         None => {/* Do nothing with an empty query */}
     }
 
-    let mut positions = vec![];
-
     for m_line in input_file.lines() {
         let line = match m_line {
             Ok(l) => l,
@@ -127,20 +237,14 @@ fn main() {
         };
 
         let info = LineInfo::from(line.clone());
-        positions.clear();
 
-        for c in query.chars() {
-            match info.char_map.get(&c) {
-                None => break,
-                Some(list) => {
-                    positions.push(list.clone());
-                }
+        match info.query_positions(&query) {
+            None => {
+                // non-matching line
+            },
+            Some(positions) => {
+                println!("Matching line {:?} with positions {:?}", line, positions);
             }
-        }
-
-        if positions.len() == query.len() {
-            // matching line
-            println!("Line {:?}: positions {:?}", line, positions);
         }
     }
 }
