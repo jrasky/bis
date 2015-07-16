@@ -1,7 +1,8 @@
+#![feature(deque_extras)]
 #![feature(iter_arith)]
 use std::fs::File;
 use std::io::{BufReader, BufRead, Write};
-use std::collections::{HashMap};
+use std::collections::{HashMap, VecDeque};
 
 use std::env;
 use std::io;
@@ -17,6 +18,8 @@ const HEAT_WEIGHT: isize = 5;
 const LINE_REDUCE: isize = 50;
 
 const MAX_LEN: usize = 80;
+
+const MATCH_NUMBER: usize = 10;
 
 #[derive(Debug)]
 struct LineInfo {
@@ -294,8 +297,8 @@ fn main() {
     }
 
     let mut line_number = -1;
-    let mut best_match = None;
-    let mut best_score = None;
+
+    let mut matches = VecDeque::with_capacity(MATCH_NUMBER + 1);
 
     for m_line in input_file.lines() {
         let line = match m_line {
@@ -338,26 +341,25 @@ fn main() {
 
         //println!("Line {:?} score {}", &line, line_score);
 
-        match best_score {
+        // push the match if it's better than the last ones
+        match matches.front() {
             None => {
-                best_score = Some(line_score);
-                best_match = Some(line);
+                matches.push_front((line_score, line));
             },
-            Some(last) => {
-                if line_score >= last {
-                    best_score = Some(line_score);
-                    best_match = Some(line);
+            Some(&(score, _)) => {
+                if line_score >= score {
+                    matches.push_front((line_score, line));
                 }
             }
         }
+
+        // truncate the list
+        matches.truncate(MATCH_NUMBER);
     }
 
-    match best_match {
-        Some(line) => {
-            println!("Best match: {:?}", line);
-        },
-        None => {
-            println!("No best match found");
-        }
+    println!("Matches:");
+
+    for &(_, ref line) in matches.iter() {
+        println!("{}", line);
     }
 }
