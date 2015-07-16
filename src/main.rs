@@ -20,7 +20,6 @@ const MAX_LEN: usize = 80;
 
 #[derive(Debug)]
 struct LineInfo {
-    line: String,
     char_map: HashMap<char, Vec<usize>>,
     heatmap: Vec<isize>
 }
@@ -34,11 +33,11 @@ enum CharClass {
     Other
 }
 
-impl<T: Into<String>> From<T> for LineInfo {
+impl<T: AsRef<str>> From<T> for LineInfo {
     fn from(item: T) -> LineInfo {
         let mut map: HashMap<char, Vec<usize>> = HashMap::new();
         let mut heat = vec![];
-        let line = item.into();
+        let line = item.as_ref();
 
         let mut ws_score = 0;
         let mut cs_score = 0;
@@ -113,7 +112,6 @@ impl<T: Into<String>> From<T> for LineInfo {
         }
 
         LineInfo {
-            line: line,
             char_map: map,
             heatmap: heat
         }
@@ -310,7 +308,7 @@ fn main() {
             continue;
         }
 
-        let info = LineInfo::from(line.clone());
+        let info = LineInfo::from(&line);
 
         line_number += 1;
 
@@ -324,7 +322,7 @@ fn main() {
             }
         };
 
-        println!("Line {:?} score {}", &line, line_score);
+        //println!("Line {:?} score {}", &line, line_score);
 
         match best_score {
             None => {
