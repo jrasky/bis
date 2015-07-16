@@ -301,14 +301,29 @@ fn main() {
 
     for m_line in input_file.lines() {
         let line = match m_line {
-            Ok(l) => l,
+            Ok(mut line) => {
+                if line.len() > MAX_LEN {
+                    let mut cut_at = None;
+                    for (idx, _) in line.char_indices() {
+                        if idx > MAX_LEN {
+                            cut_at = Some(idx);
+                            break;
+                        }
+                    }
+                    match cut_at {
+                        None => {
+                            // do nothing, last character spans the 80th byte
+                        },
+                        Some(idx) => {
+                            line.truncate(idx);
+                        }
+                    }
+                }
+                // return the result
+                line
+            },
             Err(e) => panic!("Failed to read line: {}", e)
         };
-
-        if line.len() > MAX_LEN {
-            // ignore this line
-            continue;
-        }
 
         let info = LineInfo::from(line.clone());
 
