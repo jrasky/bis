@@ -1,3 +1,4 @@
+#![feature(iter_arith)]
 use std::fs::File;
 use std::io::{BufReader, BufRead, Write};
 use std::collections::{HashMap};
@@ -7,8 +8,15 @@ use std::io;
 
 const WHITESPACE_FACTOR: isize = 5;
 const WHITESPACE_REDUCE: isize = 2;
-const CLASS_FACTOR: isize = 5;
+const CLASS_FACTOR: isize = 3;
+const FIRST_FACTOR: isize = 3;
 const CLASS_REDUCE: isize = 2;
+
+const DIST_WEIGHT: isize = -10;
+const HEAT_WEIGHT: isize = 5;
+const LINE_REDUCE: isize = 50;
+
+const MAX_LEN: usize = 80;
 
 #[derive(Debug)]
 struct LineInfo {
@@ -22,6 +30,7 @@ enum CharClass {
     Whitespace,
     Numeric,
     Alphabetic,
+    First,
     Other
 }
 
@@ -33,26 +42,47 @@ impl<T: Into<String>> From<T> for LineInfo {
 
         let mut ws_score = 0;
         let mut cs_score = 0;
-        let mut cur_class = CharClass::Whitespace;
+        let mut cur_class = CharClass::First;
+        // character class changes don't stack
+        let mut cs_change = false;
 
         for (idx, c) in line.chars().enumerate() {
             // don't map whitespace
             if !c.is_whitespace() {
                 // update the character class change score if needed
+                if cur_class == CharClass::First {
+                    // add the first character factor on top of class change
+                    cs_score += FIRST_FACTOR;
+                }
                 if c.is_numeric() {
                     if cur_class != CharClass::Numeric {
                         cur_class = CharClass::Numeric;
-                        cs_score += CLASS_FACTOR;
+                        if !cs_change {
+                            cs_score += CLASS_FACTOR;
+                            cs_change = true;
+                        }
+                    } else {
+                        cs_change = false;
                     }
                 } else if c.is_alphabetic() {
                     if cur_class != CharClass::Alphabetic {
                         cur_class = CharClass::Alphabetic;
-                        cs_score += CLASS_FACTOR;
+                        if !cs_change {
+                            cs_score += CLASS_FACTOR;
+                            cs_change = true;
+                        }
+                    } else {
+                        cs_change = false;
                     }
                 } else {
                     if cur_class != CharClass::Other {
                         cur_class = CharClass::Other;
-                        cs_score += CLASS_FACTOR;
+                        if !cs_change {
+                            cs_score += CLASS_FACTOR;
+                            cs_change = true;
+                        }
+                    } else {
+                        cs_change = false;
                     }
                 }
 
@@ -77,7 +107,9 @@ impl<T: Into<String>> From<T> for LineInfo {
 
             // reduce things
             ws_score /= WHITESPACE_REDUCE;
-            cs_score /= CLASS_REDUCE;
+            if !cs_change {
+                cs_score /= CLASS_REDUCE;
+            }
         }
 
         LineInfo {
@@ -198,6 +230,39 @@ impl LineInfo {
             }
         }
     }
+
+    fn query_score<T: AsRef<str>>(&self, query: T) -> Option<isize> {
+        match self.query_positions(&query) {
+            None => None,
+            Some(positions) => {
+                let mut top_score = None;
+                for pgroup in positions.iter() {
+                    // find the average distance between the indexes
+                    let mut dist_total = 0;
+                    let mut dist_count = 0;
+                    for i in 0..pgroup.len() - 1 {
+                        dist_total += (pgroup[i + 1] - pgroup[i]) as isize;
+                        dist_count += 1;
+                    }
+                    // sum the heatmap
+                    let heat_sum: isize = pgroup.iter().map(|pos| {self.heatmap[*pos]}).sum();
+                    let score = (dist_total / dist_count) * DIST_WEIGHT +
+                        heat_sum * HEAT_WEIGHT;
+                    match top_score {
+                        None => top_score = Some(score),
+                        Some(last) => {
+                            if score > last {
+                                top_score = Some(score);
+                            }
+                        }
+                    }
+                }
+
+                // return the result
+                top_score
+            }
+        }
+    }
 }
 
 fn main() {
@@ -230,21 +295,57 @@ fn main() {
         None => {/* Do nothing with an empty query */}
     }
 
+    let mut line_number = -1;
+    let mut best_match = None;
+    let mut best_score = None;
+
     for m_line in input_file.lines() {
         let line = match m_line {
             Ok(l) => l,
             Err(e) => panic!("Failed to read line: {}", e)
         };
 
+        if line.len() > MAX_LEN {
+            // ignore this line
+            continue;
+        }
+
         let info = LineInfo::from(line.clone());
 
-        match info.query_positions(&query) {
+        line_number += 1;
+
+        let line_score = match info.query_score(&query) {
             None => {
                 // non-matching line
+                continue;
             },
-            Some(positions) => {
-                println!("Matching line {:?} with positions {:?}", line, positions);
+            Some(score) => {
+                score + line_number / LINE_REDUCE
             }
+        };
+
+        println!("Line {:?} score {}", &line, line_score);
+
+        match best_score {
+            None => {
+                best_score = Some(line_score);
+                best_match = Some(line);
+            },
+            Some(last) => {
+                if line_score >= last {
+                    best_score = Some(line_score);
+                    best_match = Some(line);
+                }
+            }
+        }
+    }
+
+    match best_match {
+        Some(line) => {
+            println!("Best match: {:?}", line);
+        },
+        None => {
+            println!("No best match found");
         }
     }
 }
