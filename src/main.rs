@@ -15,7 +15,7 @@ const CLASS_REDUCE: isize = 2;
 
 const DIST_WEIGHT: isize = -10;
 const HEAT_WEIGHT: isize = 5;
-const LINE_REDUCE: isize = 50;
+const FACTOR_REDUCE: isize = 50;
 
 const MAX_LEN: usize = 80;
 
@@ -24,7 +24,8 @@ const MATCH_NUMBER: usize = 10;
 #[derive(Debug)]
 struct LineInfo {
     char_map: HashMap<char, Vec<usize>>,
-    heatmap: Vec<isize>
+    heatmap: Vec<isize>,
+    pub factor: isize
 }
 
 #[derive(PartialEq)]
@@ -36,8 +37,8 @@ enum CharClass {
     Other
 }
 
-impl<T: AsRef<str>> From<T> for LineInfo {
-    fn from(item: T) -> LineInfo {
+impl LineInfo {
+    fn new<T: AsRef<str>>(item: T, factor: isize) -> LineInfo {
         let mut map: HashMap<char, Vec<usize>> = HashMap::new();
         let mut heat = vec![];
         let line = item.as_ref();
@@ -116,12 +117,11 @@ impl<T: AsRef<str>> From<T> for LineInfo {
 
         LineInfo {
             char_map: map,
-            heatmap: heat
+            heatmap: heat,
+            factor: factor
         }
     }
-}
 
-impl LineInfo {
     fn query_sequence<T: AsRef<str>>(&self, query_item: T) -> Option<Vec<Vec<usize>>> {
         let query = query_item.as_ref();
         let mut positions: Vec<Vec<usize>> = vec![];
@@ -233,7 +233,7 @@ impl LineInfo {
     }
 
     fn query_score<T: AsRef<str>>(&self, query: T) -> Option<isize> {
-        match self.query_positions(&query) {
+        match self.query_positions(query) {
             None => None,
             Some(positions) => {
                 let mut top_score = None;
@@ -260,7 +260,12 @@ impl LineInfo {
                 }
 
                 // return the result
-                top_score
+                match top_score {
+                    None => None,
+                    Some(score) => {
+                        Some(score + self.factor / FACTOR_REDUCE)
+                    }
+                }
             }
         }
     }
@@ -277,29 +282,13 @@ fn main() {
         Err(e) => panic!("Could not open history file: {}", e)
     };
 
-    let mut query = String::new();
-
-    print!("Match input: ");
-    match io::stdout().flush() {
-        Err(e) => panic!("Failed to flush stdout: {}", e),
-        Ok(_) => {}
-    }
-
-    match io::stdin().read_line(&mut query) {
-        Ok(_) => {},
-        Err(e) => panic!("Failed to read input line: {}", e)
-    }
-
-    match query.pop() {
-        Some('\n') => {/* pop off trailing newline */},
-        Some(c) => query.push(c),
-        None => {/* Do nothing with an empty query */}
-    }
-
     let mut line_number = -1;
 
-    let mut matches = VecDeque::with_capacity(MATCH_NUMBER + 1);
+    // create a hashmap of lines to info
+    let mut lines: HashMap<String, LineInfo> = HashMap::new();
 
+    // read the history
+    println!("Reading history...");
     for m_line in input_file.lines() {
         let line = match m_line {
             Ok(mut line) => {
@@ -326,29 +315,57 @@ fn main() {
             Err(e) => panic!("Failed to read line: {}", e)
         };
 
-        let info = LineInfo::from(&line);
         line_number += 1;
 
+        // generate the line info
+        let info = LineInfo::new(&line, line_number);
+
+        // insert the line into the map
+        lines.insert(line, info);
+    }
+
+    let mut query = String::new();
+
+    print!("Match input: ");
+    match io::stdout().flush() {
+        Err(e) => panic!("Failed to flush stdout: {}", e),
+        Ok(_) => {}
+    }
+
+    match io::stdin().read_line(&mut query) {
+        Ok(_) => {},
+        Err(e) => panic!("Failed to read input line: {}", e)
+    }
+
+    match query.pop() {
+        Some('\n') => {/* pop off trailing newline */},
+        Some(c) => query.push(c),
+        None => {/* Do nothing with an empty query */}
+    }
+
+    // allocate plus one element since we trim after adding one too many
+    let mut matches = VecDeque::with_capacity(MATCH_NUMBER + 1);
+
+    // search for a match
+    for (line, info) in lines.iter() {
         let line_score = match info.query_score(&query) {
             None => {
                 // non-matching line
                 continue;
             },
             Some(score) => {
-                score + line_number / LINE_REDUCE
+                score
             }
         };
-
-        //println!("Line {:?} score {}", &line, line_score);
 
         // push the match if it's better than the last ones
         match matches.front() {
             None => {
-                matches.push_front((line_score, line));
+                matches.push_front((line_score, info.factor, line));
             },
-            Some(&(score, _)) => {
-                if line_score >= score {
-                    matches.push_front((line_score, line));
+            Some(&(score, factor, _)) => {
+                if line_score > score || (line_score == score && info.factor > factor) {
+                    matches.push_front((line_score, info.factor, line));
                 }
             }
         }
@@ -359,7 +376,7 @@ fn main() {
 
     println!("Matches:");
 
-    for &(_, ref line) in matches.iter() {
+    for &(_, _, ref line) in matches.iter() {
         println!("{}", line);
     }
 }
