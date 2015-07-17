@@ -1,11 +1,14 @@
-#![feature(deque_extras)]
+#![feature(collections)]
+#![feature(into_cow)]
 #![feature(iter_arith)]
 use std::fs::File;
 use std::io::{BufReader, BufRead, Write};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, BinaryHeap};
+use std::borrow::{Cow, IntoCow};
 
 use std::env;
 use std::io;
+use std::cmp;
 
 const WHITESPACE_FACTOR: isize = 5;
 const WHITESPACE_REDUCE: isize = 2;
@@ -28,6 +31,13 @@ struct LineInfo {
     pub factor: isize
 }
 
+#[derive(Debug)]
+struct LineMatch {
+    score: isize,
+    factor: isize,
+    line: Cow<'static, str>
+}
+
 #[derive(PartialEq)]
 enum CharClass {
     Whitespace,
@@ -36,6 +46,29 @@ enum CharClass {
     First,
     Other
 }
+
+impl Ord for LineMatch {
+    fn cmp(&self, other: &LineMatch) -> cmp::Ordering {
+        match self.score.cmp(&other.score) {
+            cmp::Ordering::Equal => self.factor.cmp(&other.factor),
+            order => order
+        }
+    }
+}
+
+impl PartialOrd for LineMatch {
+    fn partial_cmp(&self, other: &LineMatch) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for LineMatch {
+    fn eq(&self, other: &LineMatch) -> bool {
+        self.cmp(other) == cmp::Ordering::Equal
+    }
+}
+
+impl Eq for LineMatch {}
 
 impl LineInfo {
     fn new<T: AsRef<str>>(item: T, factor: isize) -> LineInfo {
@@ -285,7 +318,7 @@ fn main() {
     let mut line_number = -1;
 
     // create a hashmap of lines to info
-    let mut lines: HashMap<String, LineInfo> = HashMap::new();
+    let mut lines: HashMap<Cow<'static, str>, LineInfo> = HashMap::new();
 
     // read the history
     println!("Reading history...");
@@ -321,7 +354,7 @@ fn main() {
         let info = LineInfo::new(&line, line_number);
 
         // insert the line into the map
-        lines.insert(line, info);
+        lines.insert(line.into_cow(), info);
     }
 
     let mut query = String::new();
@@ -344,7 +377,7 @@ fn main() {
     }
 
     // allocate plus one element since we trim after adding one too many
-    let mut matches = VecDeque::with_capacity(MATCH_NUMBER + 1);
+    let mut matches: BinaryHeap<LineMatch> = BinaryHeap::with_capacity(MATCH_NUMBER);
 
     // search for a match
     for (line, info) in lines.iter() {
@@ -358,25 +391,28 @@ fn main() {
             }
         };
 
-        // push the match if it's better than the last ones
-        match matches.front() {
-            None => {
-                matches.push_front((line_score, info.factor, line));
-            },
-            Some(&(score, factor, _)) => {
-                if line_score > score || (line_score == score && info.factor > factor) {
-                    matches.push_front((line_score, info.factor, line));
-                }
-            }
+        // negate everything so we can use push_pop
+        if matches.len() < MATCH_NUMBER {
+            matches.push(LineMatch {
+                score: -line_score,
+                factor: -info.factor,
+                line: line.clone()
+            });
+        } else {
+            matches.push_pop(LineMatch {
+                score: -line_score,
+                factor: -info.factor,
+                line: line.clone()
+            });
         }
-
-        // truncate the list
-        matches.truncate(MATCH_NUMBER);
     }
+
+    // result contains a vector of the top MATCH_NUMBER lines, in descending score order
+    let result = matches.into_sorted_vec();
 
     println!("Matches:");
 
-    for &(_, _, ref line) in matches.iter() {
-        println!("{}", line);
+    for item in result.iter() {
+        println!("{}", item.line);
     }
 }
