@@ -318,7 +318,7 @@ fn main() {
     let mut line_number = -1;
 
     // create a hashmap of lines to info
-    let mut lines: HashMap<Cow<'static, str>, LineInfo> = HashMap::new();
+    let mut lines: HashMap<Cow<str>, LineInfo> = HashMap::new();
 
     // read the history
     println!("Reading history...");
