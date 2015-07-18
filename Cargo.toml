@@ -2,3 +2,6 @@
 name = "bis"
 version = "0.1.0"
 authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+
+[dependencies]
+term = "0.2"
