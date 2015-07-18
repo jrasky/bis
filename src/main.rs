@@ -4,11 +4,14 @@
 use std::fs::File;
 use std::io::{BufReader, BufRead, Write};
 use std::collections::{HashMap, BinaryHeap};
-use std::borrow::{Cow, IntoCow};
+use std::borrow::{Cow, IntoCow, Borrow};
+use std::error::Error;
 
 use std::env;
 use std::io;
 use std::cmp;
+use std::fmt;
+use std::path;
 
 const WHITESPACE_FACTOR: isize = 5;
 const WHITESPACE_REDUCE: isize = 2;
@@ -37,6 +40,158 @@ struct LineMatch {
     factor: isize,
     line: Cow<'static, str>
 }
+
+#[derive(Debug)]
+struct SearchBase {
+    lines: HashMap<Cow<'static, str>, LineInfo>
+}
+
+#[derive(Debug)]
+struct StringError {
+    description: String,
+    cause: Option<Box<Error>>
+}
+
+impl fmt::Display for StringError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Error for StringError {
+    fn description(&self) -> &str {
+        self.description.as_ref()
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        match self.cause {
+            None => None,
+            Some(ref error) => Some(error.borrow())
+        }
+    }
+}
+
+impl StringError {
+    fn new<T: Into<String>>(description: T, cause: Option<Box<Error>>) -> StringError {
+        StringError {
+            description: description.into(),
+            cause: cause
+        }
+    }
+}
+
+impl Default for SearchBase {
+    fn default() -> SearchBase {
+        SearchBase {
+            lines: HashMap::default()
+        }
+    }
+}
+
+impl SearchBase {
+    pub fn read_history<T: AsRef<path::Path>>(&mut self, path: T) -> Result<isize, StringError> {
+        let input_file = match File::open(path) {
+            Ok(f) => BufReader::new(f),
+            Err(e) => return Err(StringError::new("Could not open history file", Some(Box::new(e))))
+        };
+
+        let mut line_number = -1;
+
+        for m_line in input_file.lines() {
+            let line = match m_line {
+                Ok(mut line) => {
+                    if line.len() > MAX_LEN {
+                        let mut cut_at = None;
+                        for (idx, _) in line.char_indices() {
+                            if idx > MAX_LEN {
+                                cut_at = Some(idx);
+                                break;
+                            }
+                        }
+                        match cut_at {
+                            None => {
+                                // do nothing, last character spans the 80th byte
+                            },
+                            Some(idx) => {
+                                line.truncate(idx);
+                            }
+                        }
+                    }
+                    // return the result
+                    line
+                },
+                Err(e) => {
+                    return Err(StringError::new("Failed to read line", Some(Box::new(e))));
+                }
+            };
+
+            line_number += 1;
+
+            // generate the line info
+            let info = LineInfo::new(&line, line_number);
+
+            // insert the line into the map
+            self.lines.insert(line.into_cow(), info);
+        }
+
+        Ok(line_number)
+    }
+
+    pub fn query_inplace<T: AsRef<str>>(&self, query: T, matches: &mut BinaryHeap<LineMatch>) {
+        // search for a match
+        for (line, info) in self.lines.iter() {
+            let line_score = match info.query_score(&query) {
+                None => {
+                    // non-matching line
+                    continue;
+                },
+                Some(score) => {
+                    score
+                }
+            };
+
+            // negate everything so we can use push_pop
+            let match_item = LineMatch {
+                score: -line_score,
+                factor: -info.factor,
+                line: line.clone()
+            };
+            let matches_len = matches.len();
+            let matches_capacity = matches.capacity();
+            let insert;
+            match matches.peek() {
+                None => {
+                    insert = true;
+                },
+                Some(item) => {
+                    if &match_item < item || matches_len < matches_capacity {
+                        insert = true
+                    } else {
+                        insert = false;
+                    }
+                }
+            }
+            if insert {
+                if matches_len < matches_capacity {
+                    matches.push(match_item);
+                } else {
+                    matches.push_pop(match_item);
+                }
+            }
+        }
+    }
+
+    pub fn query<T: AsRef<str>>(&self, query: T) -> Vec<Cow<str>> {
+        // allocate the match object
+        let mut matches: BinaryHeap<LineMatch> = BinaryHeap::with_capacity(MATCH_NUMBER);
+
+        self.query_inplace(query, &mut matches);
+
+        // result contains a vector of the top MATCH_NUMBER lines, in descending score order
+        matches.into_sorted_vec().into_iter().map(|x| {x.line}).collect()
+    }
+}
+
 
 #[derive(PartialEq)]
 enum CharClass {
@@ -310,51 +465,18 @@ fn main() {
         Err(e) => panic!("Failed to get bash history file: {}", e)
     };
 
-    let input_file = match File::open(&history_path) {
-        Ok(f) => BufReader::new(f),
-        Err(e) => panic!("Could not open history file: {}", e)
-    };
-
-    let mut line_number = -1;
-
     // create a hashmap of lines to info
-    let mut lines: HashMap<Cow<str>, LineInfo> = HashMap::new();
+    let mut base = SearchBase::default();
 
     // read the history
     println!("Reading history...");
-    for m_line in input_file.lines() {
-        let line = match m_line {
-            Ok(mut line) => {
-                if line.len() > MAX_LEN {
-                    let mut cut_at = None;
-                    for (idx, _) in line.char_indices() {
-                        if idx > MAX_LEN {
-                            cut_at = Some(idx);
-                            break;
-                        }
-                    }
-                    match cut_at {
-                        None => {
-                            // do nothing, last character spans the 80th byte
-                        },
-                        Some(idx) => {
-                            line.truncate(idx);
-                        }
-                    }
-                }
-                // return the result
-                line
-            },
-            Err(e) => panic!("Failed to read line: {}", e)
-        };
-
-        line_number += 1;
-
-        // generate the line info
-        let info = LineInfo::new(&line, line_number);
-
-        // insert the line into the map
-        lines.insert(line.into_cow(), info);
+    match base.read_history(history_path) {
+        Ok(_) => {
+            // success
+        },
+        Err(e) => {
+            panic!("Failed to read history: {}", e)
+        }
     }
 
     let mut query = String::new();
@@ -376,43 +498,11 @@ fn main() {
         None => {/* Do nothing with an empty query */}
     }
 
-    // allocate plus one element since we trim after adding one too many
-    let mut matches: BinaryHeap<LineMatch> = BinaryHeap::with_capacity(MATCH_NUMBER);
-
-    // search for a match
-    for (line, info) in lines.iter() {
-        let line_score = match info.query_score(&query) {
-            None => {
-                // non-matching line
-                continue;
-            },
-            Some(score) => {
-                score
-            }
-        };
-
-        // negate everything so we can use push_pop
-        if matches.len() < MATCH_NUMBER {
-            matches.push(LineMatch {
-                score: -line_score,
-                factor: -info.factor,
-                line: line.clone()
-            });
-        } else {
-            matches.push_pop(LineMatch {
-                score: -line_score,
-                factor: -info.factor,
-                line: line.clone()
-            });
-        }
-    }
-
-    // result contains a vector of the top MATCH_NUMBER lines, in descending score order
-    let result = matches.into_sorted_vec();
+    let result = base.query(&query);
 
     println!("Matches:");
 
     for item in result.iter() {
-        println!("{}", item.line);
+        println!("{}", item);
     }
 }
