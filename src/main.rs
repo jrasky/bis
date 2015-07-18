@@ -1,6 +1,13 @@
 #![feature(collections)]
 #![feature(into_cow)]
 #![feature(iter_arith)]
+#![feature(plugin)]
+#![plugin(regex_macros)]
+extern crate libc;
+extern crate regex;
+#[no_link]
+extern crate regex_macros;
+
 use std::fs::File;
 use std::io::{BufReader, BufRead, Write};
 use std::collections::{HashMap, BinaryHeap};
@@ -12,6 +19,15 @@ use std::io;
 use std::cmp;
 use std::fmt;
 use std::path;
+
+mod constants;
+#[macro_use]
+mod util;
+mod ioctl;
+mod controls;
+mod types;
+mod signal;
+mod process;
 
 const WHITESPACE_FACTOR: isize = 5;
 const WHITESPACE_REDUCE: isize = 2;
