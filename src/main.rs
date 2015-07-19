@@ -1,6 +1,11 @@
+#![feature(cstr_to_str)]
 #![feature(collections)]
 #![feature(into_cow)]
 #![feature(iter_arith)]
+extern crate libc;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 
 use std::io::Write;
 
@@ -11,10 +16,26 @@ use search::SearchBase;
 
 mod search;
 mod error;
+mod bis_c;
 
 fn main() {
+    // init logging
+    match env_logger::init() {
+        Ok(()) => {
+            trace!("Logging initialized successfully");
+        },
+        Err(e) => {
+            panic!("Failed to initialize logging: {}", e);
+        }
+    }
+
+    debug!("Getting history path");
+
     let history_path = match env::var("HISTFILE") {
-        Ok(p) => p,
+        Ok(p) => {
+            trace!("Got history path: {:?}", p);
+            p
+        },
         Err(e) => panic!("Failed to get bash history file: {}", e)
     };
 
@@ -22,7 +43,7 @@ fn main() {
     let mut base = SearchBase::default();
 
     // read the history
-    println!("Reading history...");
+    info!("Reading history");
     match base.read_history(history_path) {
         Ok(_) => {
             // success
@@ -37,19 +58,27 @@ fn main() {
     print!("Match input: ");
     match io::stdout().flush() {
         Err(e) => panic!("Failed to flush stdout: {}", e),
-        Ok(_) => {}
+        Ok(_) => {
+            trace!("Successfully flushed output");
+        }
     }
 
     match io::stdin().read_line(&mut query) {
-        Ok(_) => {},
+        Ok(_) => {
+            trace!("Successfully read line");
+        },
         Err(e) => panic!("Failed to read input line: {}", e)
     }
+
+    debug!("Got query: {:?}", query);
 
     match query.pop() {
         Some('\n') => {/* pop off trailing newline */},
         Some(c) => query.push(c),
         None => {/* Do nothing with an empty query */}
     }
+
+    debug!("Querying search base");
 
     let result = base.query(&query);
 
