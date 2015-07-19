@@ -2,8 +2,13 @@
 name = "bis"
 version = "0.1.0"
 authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+links = "bis_c"
+build = "build.rs"
 
 [dependencies]
-regex = "*"
-regex_macros = "*"
-unicode-width = "*"
+libc = "*"
+log = "*"
+env_logger = "*"
+
+[build-dependencies]
+gcc = "*"
