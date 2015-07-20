@@ -2,8 +2,11 @@
 
 use error::StringError;
 
+// this object exists to track Rust's memory model
+// that way the terminal is restored when the main
+// thread exits
 #[derive(Debug)]
-pub struct BisTerminal;
+pub struct TermTrack;
 
 mod c {
     use libc::*;
@@ -36,13 +39,13 @@ mod c {
     }
 }
 
-impl Default for BisTerminal {
-    fn default() -> BisTerminal {
-        BisTerminal
+impl Default for TermTrack {
+    fn default() -> TermTrack {
+        TermTrack
     }
 }
 
-impl Drop for BisTerminal {
+impl Drop for TermTrack {
     fn drop(&mut self) {
         match self.restore() {
             Ok(()) => {
@@ -55,8 +58,9 @@ impl Drop for BisTerminal {
     }
 }
 
-impl BisTerminal {
+impl TermTrack {
     pub fn prepare(&mut self) -> Result<(), StringError> {
+        debug!("Preparing terminal");
         match unsafe {c::bis_prepare_terminal()} {
             0 => Ok(()),
             _ => Err(unsafe {c::get_bis_error()})
@@ -64,6 +68,7 @@ impl BisTerminal {
     }
 
     pub fn restore(&mut self) -> Result<(), StringError> {
+        debug!("Restoring terminal");
         match unsafe {c::bis_restore_terminal()} {
             0 => Ok(()),
             _ => Err(unsafe {c::get_bis_error()})

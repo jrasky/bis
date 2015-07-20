@@ -9,6 +9,7 @@ build = "build.rs"
 libc = "*"
 log = "*"
 env_logger = "*"
+term = "*"
 
 [build-dependencies]
 gcc = "*"

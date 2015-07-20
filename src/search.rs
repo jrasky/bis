@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufReader, BufRead};
+use std::io::prelude::*;
 use std::collections::{HashMap, BinaryHeap};
 use std::borrow::{Cow, IntoCow};
 

@@ -6,8 +6,9 @@ extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate term;
 
-use std::io::Write;
+use std::io::prelude::*;
 
 use std::env;
 use std::io;
@@ -17,6 +18,7 @@ use search::SearchBase;
 mod search;
 mod error;
 mod bis_c;
+mod ui;
 
 fn main() {
     // init logging
