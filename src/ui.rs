@@ -1,4 +1,5 @@
-use term::terminfo::{TermInfo, Terminal};
+use term::terminfo::TermInfo;
+use term::StdoutTerminal;
 
 use bis_c::TermTrack;
 use error::StringError;
@@ -7,5 +8,5 @@ use error::StringError;
 struct UI {
     track: TermTrack,
     info: TermInfo,
-    handle: Box<Terminal>
+    handle: Box<StdoutTerminal>
 }
