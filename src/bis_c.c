@@ -1,10 +1,16 @@
 #include <termios.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/ioctl.h>
 
 struct bis_error_info_t {
   char *error_str;
   char is_errno;
+};
+
+struct bis_term_size_t {
+  unsigned short rows;
+  unsigned short cols;
 };
 
 static char bis_term_info_set = 0;
@@ -57,6 +63,23 @@ int bis_restore_terminal() {
     bis_error_info.is_errno = 1;
     return -1;
   }
+
+  // return success
+  return 0;
+}
+
+int bis_get_terminal_size(struct bis_term_size_t *size) {
+  struct winsize term_size;
+  // request the terminal size
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &term_size) != 0) {
+    bis_error_info.error_str = "ioctl call failed";
+    bis_error_info.is_errno = 1;
+    return -1;
+  }
+
+  // put the info into size
+  size->rows = term_size.ws_row;
+  size->cols = term_size.ws_col;
 
   // return success
   return 0;

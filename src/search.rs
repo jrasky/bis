@@ -175,7 +175,7 @@ impl SearchBase {
         }
     }
 
-    pub fn query<T: AsRef<str>>(&self, query: T) -> Vec<Cow<str>> {
+    pub fn query<T: AsRef<str>>(&self, query: T) -> Vec<Cow<'static, str>> {
         // allocate the match object
         let mut matches: BinaryHeap<LineMatch> = BinaryHeap::with_capacity(MATCH_NUMBER);
 

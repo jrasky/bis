@@ -8,6 +8,12 @@ use error::StringError;
 #[derive(Debug)]
 pub struct TermTrack;
 
+#[derive(Debug, Clone, Copy)]
+pub struct TermSize {
+    rows: usize,
+    cols: usize
+}
+
 mod c {
     use libc::*;
 
@@ -22,11 +28,18 @@ mod c {
         is_errno: c_char
     }
 
+    #[repr(C)]
+    pub struct bis_term_size_t {
+        pub rows: c_ushort,
+        pub cols: c_ushort
+    }
+
     extern "C" {
         static mut bis_error_info: bis_error_info_t;
         
         pub fn bis_prepare_terminal() -> c_int;
         pub fn bis_restore_terminal() -> c_int;
+        pub fn bis_get_terminal_size(size: *mut bis_term_size_t) -> c_int;
     }
 
     pub unsafe fn get_bis_error() -> StringError {
@@ -71,6 +84,22 @@ impl TermTrack {
         debug!("Restoring terminal");
         match unsafe {c::bis_restore_terminal()} {
             0 => Ok(()),
+            _ => Err(unsafe {c::get_bis_error()})
+        }
+    }
+
+    pub fn get_size(&self) -> Result<TermSize, StringError> {
+        debug!("Getting terminal size");
+        let mut term_size = c::bis_term_size_t {
+            rows: 0,
+            cols: 0
+        };
+
+        match unsafe {c::bis_get_terminal_size(&mut term_size)} {
+            0 => Ok(TermSize {
+                rows: term_size.rows as usize,
+                cols: term_size.cols as usize
+            }),
             _ => Err(unsafe {c::get_bis_error()})
         }
     }
