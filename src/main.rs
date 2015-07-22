@@ -2,18 +2,16 @@
 #![feature(collections)]
 #![feature(into_cow)]
 #![feature(iter_arith)]
+#![feature(str_escape)]
+#![feature(io)]
 extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
 extern crate term;
+extern crate unicode_width;
 
-use std::io::prelude::*;
-
-use std::env;
-use std::io;
-
-use search::SearchBase;
+use ui::UI;
 
 mod search;
 mod error;
@@ -31,62 +29,28 @@ fn main() {
         }
     }
 
-    debug!("Getting history path");
+    // create the UI instance
+    debug!("Creating UI instance");
 
-    let history_path = match env::var("HISTFILE") {
-        Ok(p) => {
-            trace!("Got history path: {:?}", p);
-            p
+    let mut ui = match UI::create() {
+        Err(e) => {
+            panic!("Failed to create UI instance: {}", e);
         },
-        Err(e) => panic!("Failed to get bash history file: {}", e)
+        Ok(ui) => {
+            trace!("UI instance created successfully");
+            ui
+        }
     };
 
-    // create a hashmap of lines to info
-    let mut base = SearchBase::default();
+    // start the ui
+    debug!("Starting UI");
 
-    // read the history
-    info!("Reading history");
-    match base.read_history(history_path) {
+    match ui.start() {
         Ok(_) => {
-            // success
+            debug!("UI finished successfully");
         },
         Err(e) => {
-            panic!("Failed to read history: {}", e)
+            panic!("UI failure: {}", e);
         }
-    }
-
-    let mut query = String::new();
-
-    print!("Match input: ");
-    match io::stdout().flush() {
-        Err(e) => panic!("Failed to flush stdout: {}", e),
-        Ok(_) => {
-            trace!("Successfully flushed output");
-        }
-    }
-
-    match io::stdin().read_line(&mut query) {
-        Ok(_) => {
-            trace!("Successfully read line");
-        },
-        Err(e) => panic!("Failed to read input line: {}", e)
-    }
-
-    debug!("Got query: {:?}", query);
-
-    match query.pop() {
-        Some('\n') => {/* pop off trailing newline */},
-        Some(c) => query.push(c),
-        None => {/* Do nothing with an empty query */}
-    }
-
-    debug!("Querying search base");
-
-    let result = base.query(&query);
-
-    println!("Matches:");
-
-    for item in result.iter() {
-        println!("{}", item);
     }
 }

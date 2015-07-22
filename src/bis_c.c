@@ -39,6 +39,9 @@ int bis_prepare_terminal() {
   // disable canonical mode
   terminfo_p.c_lflag &= ~ICANON;
 
+  // disable echo
+  terminfo_p.c_lflag &= ~ECHO;
+
   // set terminal options
   if (tcsetattr(STDOUT_FILENO, TCSAFLUSH, &terminfo_p) != 0) {
     bis_error_info.error_str = "Error setting terminal attributes";

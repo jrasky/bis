@@ -394,6 +394,10 @@ impl LineInfo {
                         dist_total += (pgroup[i + 1] - pgroup[i]) as isize;
                         dist_count += 1;
                     }
+                    // avoid division by zero
+                    if dist_count == 0 {
+                        dist_count = 1;
+                    }
                     // sum the heatmap
                     let heat_sum: isize = pgroup.iter().map(|pos| {self.heatmap[*pos]}).sum();
                     let score = (dist_total / dist_count) * DIST_WEIGHT +

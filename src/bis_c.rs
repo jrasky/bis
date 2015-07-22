@@ -10,8 +10,8 @@ pub struct TermTrack;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TermSize {
-    rows: usize,
-    cols: usize
+    pub rows: usize,
+    pub cols: usize
 }
 
 mod c {

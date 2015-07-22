@@ -10,6 +10,7 @@ libc = "*"
 log = "*"
 env_logger = "*"
 term = "*"
+unicode-width = "*"
 
 [build-dependencies]
 gcc = "*"
