@@ -4,6 +4,7 @@
 #![feature(iter_arith)]
 #![feature(str_escape)]
 #![feature(io)]
+#![feature(convert)]
 extern crate libc;
 #[macro_use]
 extern crate log;

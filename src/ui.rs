@@ -5,6 +5,8 @@ use unicode_width::UnicodeWidthStr;
 
 use std::sync::mpsc::{Receiver, Sender};
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::ffi::OsString;
 
 use std::sync::mpsc;
 use std::io;
@@ -14,6 +16,12 @@ use std::thread;
 use bis_c::{TermTrack, TermSize};
 use error::StringError;
 use search::SearchBase;
+
+// TermControl contains utility funcitons for terminfo
+struct TermControl {
+    // come on man Vec<u8>? Really? smh
+    strings: HashMap<String, OsString>
+}
 
 // our user interface instance
 pub struct UI {
@@ -26,6 +34,56 @@ pub struct UI {
     save_cursor: String,
     restore_cursor: String,
     clr_eos: String
+}
+
+impl Drop for UI {
+    fn drop(&mut self) {
+        debug!("Clearing screen on exit");
+        let mut output = io::stdout();
+        match write!(output, "{}", self.clr_eos) {
+            Ok(_) => {
+                trace!("Cleared screen successfully");
+            },
+            Err(e) => {
+                error!("Failed to clear screen: {}", e);
+            }
+        }
+        debug!("Flushing output");
+        match output.flush() {
+            Ok(_) => {
+                trace!("Flushed screen successfully");
+            },
+            Err(e) => {
+                error!("Failed to flush screen: {}", e);
+            }
+        }
+    }
+}
+
+impl TermControl {
+    pub fn create() -> Result<TermControl, StringError> {
+        debug!("Getting terminal info");
+        let info = match TermInfo::from_env() {
+            Ok(info) => info,
+            Err(e) => return Err(StringError::new("Failed to get TermInfo", Some(Box::new(e))))
+        };
+
+        trace!("Got terminfo: {:?}", info);
+
+        let mut strings = HashMap::default();
+
+        for (name, value) in info.strings.into_iter() {
+            strings.insert(name, match OsString::from_bytes(value) {
+                Some(s) => s,
+                None => return Err(StringError::new("Failed to convert value into an OsString", None))
+            });
+        }
+
+        // right now all we care about are the strings
+        Ok(TermControl {
+            strings: strings
+        })
+    }
 }
 
 impl UI {
@@ -131,7 +189,8 @@ impl UI {
 
         let mut query = String::new();
 
-        // draw our prompt and save the cursor
+        // draw our prompt, move ten lines down and then back up, and save the cursor
+        debug!("Drawing prompt");
         match write!(output, "Match: {}", self.save_cursor) {
             Err(e) => return Err(StringError::new("Failed to draw prompt", Some(Box::new(e)))),
             Ok(_) => {
@@ -140,6 +199,7 @@ impl UI {
         }
 
         // flush the output
+        debug!("Flushing output");
         match output.flush() {
             Ok(_) => {
                 trace!("Successfully flushed output");
