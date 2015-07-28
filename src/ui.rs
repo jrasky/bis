@@ -4,9 +4,10 @@ use term::terminfo::TermInfo;
 use unicode_width::UnicodeWidthStr;
 
 use std::sync::mpsc::{Receiver, Sender};
-use std::borrow::Cow;
+use std::borrow::{Cow, Borrow};
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::iter::FromIterator;
 
 use std::sync::mpsc;
 use std::io;
@@ -18,11 +19,12 @@ use error::StringError;
 use search::SearchBase;
 
 // TermControl contains utility funcitons for terminfo
+#[derive(Debug)]
 struct TermControl {
     strings: HashMap<String, String>
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Debug)]
 enum TermStack {
     Str(String),
     Int(isize),
@@ -35,18 +37,16 @@ pub struct UI {
     #[allow(dead_code)]
     track: TermTrack,
     size: TermSize,
+    control: TermControl,
     query: Sender<String>,
     matches: Receiver<Vec<Cow<'static, str>>>,
-    save_cursor: String,
-    restore_cursor: String,
-    clr_eos: String
 }
 
 impl Drop for UI {
     fn drop(&mut self) {
         debug!("Clearing screen on exit");
         let mut output = io::stdout();
-        match write!(output, "{}", self.clr_eos) {
+        match write!(output, "{}", self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
             Ok(_) => {
                 trace!("Cleared screen successfully");
             },
@@ -93,8 +93,11 @@ impl TermControl {
 
     pub fn get_string<T: Borrow<String>>(&mut self, name: T, params: Vec<TermStack>) -> Option<String> {
         // only implement what we're actually using in the UI
-        let sequence = match self.strings.get(name) {
-            None => return None,
+        let sequence = match self.strings.get(name.borrow()) {
+            None => {
+                trace!("No match for string: {:?}", name.borrow());
+                return None;
+            },
             Some(s) => {
                 trace!("Matched string: {:?}", s);
                 s.clone()
@@ -106,6 +109,8 @@ impl TermControl {
         let mut result = String::default();
         let mut escape = String::default();
 
+        // only implement the sequences we care about
+
         for c in sequence.chars() {
             if !escaped {
                 if c == '%' {
@@ -116,75 +121,69 @@ impl TermControl {
             } else if escape.is_empty() {
                 if c == 'd' {
                     match stack.pop() {
-                        Some(Int(c)) => {
-                            result.push_all(format!("{}", c).as_ref());
+                        Some(TermStack::Int(c)) => {
+                            result.push_str(format!("{}", c).as_ref());
                         },
-                        _ => {}
+                        Some(o) => {
+                            error!("Numeric print on non-numeric type: {:?}", o);
+                        },
+                        None => {
+                            error!("Stack was empty on print");
+                        }
                     }
 
                     escaped = false;
                 } else if c == 'p' {
-                    escaped.push('p');
+                    escape.push('p');
                 } else {
                     error!("Unknown escape character: {:?}", c);
                     escaped = false;
                 }
             } else {
                 if escape == "p" {
-                    
+                    match c.to_digit(10) {
+                        Some(idx) => {
+                            if idx != 0 {
+                                match params.get(idx as usize - 1) {
+                                    Some(item) => {
+                                        stack.push(item.clone())
+                                    },
+                                    None => {
+                                        error!("There was no parameter {}", idx);
+                                    }
+                                }
+                            } else {
+                                error!("Tried to print 0th paramater");
+                            }
+                        },
+                        None => {
+                            error!("Paramater number was not a digit");
+                        }
+                    }
+
+                    escape.clear();
+                    escaped = false;
+                } else {
+                    error!("Unknown escape sequence: {:?}", escape);
+                    escape.clear();
+                    escaped = false;
                 }
             }
         }
+
+        trace!("Returning result: {:?}", result);
+
+        // return result
+        Some(result)
     }
 }
 
 impl UI {
     pub fn create() -> Result<UI, StringError> {
-        debug!("Getting terminfo");
-        let mut info = match TermInfo::from_env() {
-            Ok(t) => t,
-            Err(e) => return Err(StringError::new("Failed to get terminfo",
-                                                  Some(Box::new(e))))
-        };
+        debug!("Creating TermControl");
+        let control = try!(TermControl::create());
 
-        // use terminfo to get control sequences
-        debug!("Terminfo: {:?}", info);
-
-        trace!("Getting save_cursor");
-        let save_cursor = match info.strings.remove(&format!("sc")) {
-            None => return Err(StringError::new("Terminfo did not contain save_cursor", None)),
-            Some(item) => match String::from_utf8(item) {
-                Err(e) => return Err(StringError::new("save_cursor was not valid utf-8", Some(Box::new(e)))),
-                Ok(s) => {
-                    trace!("save_cursor: {:?}", s.escape_default());
-                    s
-                }
-            }
-        };
-
-        trace!("Getting restore_cursor");
-        let restore_cursor = match info.strings.remove(&format!("rc")) {
-            None => return Err(StringError::new("Terminfo did not contain restore_cursor", None)),
-            Some(item) => match String::from_utf8(item) {
-                Err(e) => return Err(StringError::new("restore_cursor was not valid utf-8", Some(Box::new(e)))),
-                Ok(s) => {
-                    trace!("restore_cursor: {:?}", s.escape_default());
-                    s
-                }
-            }
-        };
-
-        trace!("Getting clr_eos");
-        let clr_eos = match info.strings.remove(&format!("clr_eos")) {
-            None => return Err(StringError::new("Terminfo did not contain clr_eos", None)),
-            Some(item) => match String::from_utf8(item) {
-                Err(e) => return Err(StringError::new("clr_eos was not valid utf-8", Some(Box::new(e)))),
-                Ok(s) => {
-                    trace!("restore_cursor: {:?}", s.escape_default());
-                    s
-                }
-            }
-        };
+        trace!("Got TermControl: {:?}", control);
 
         let mut track = TermTrack::default();
 
@@ -220,11 +219,9 @@ impl UI {
         let instance = UI {
             track: track,
             size: size,
+            control: control,
             query: query_tx,
             matches: matches_rx,
-            save_cursor: save_cursor,
-            restore_cursor: restore_cursor,
-            clr_eos: clr_eos
         };
         
         trace!("Instance creation successful");
@@ -241,9 +238,19 @@ impl UI {
 
         let mut query = String::new();
 
-        // draw our prompt, move ten lines down and then back up, and save the cursor
+        // print a bunch of newlines, and then move back up
+        match write!(output, "{}{}", String::from_iter(vec!['\n'; 10].into_iter()),
+                     self.control.get_string("cuu".to_owned(), vec![TermStack::Int(10)]).unwrap_or(format!(""))) {
+            Err(e) => return Err(StringError::new("Failed to create space", Some(Box::new(e)))),
+            Ok(_) => {
+                trace!("Successfully created space on terminal");
+            }
+        }
+
+        // draw our prompt and save the cursor
         debug!("Drawing prompt");
-        match write!(output, "Match: {}", self.save_cursor) {
+        match write!(output, "Match: {}",
+                     self.control.get_string("sc".to_owned(), vec![]).unwrap_or(format!(""))) {
             Err(e) => return Err(StringError::new("Failed to draw prompt", Some(Box::new(e)))),
             Ok(_) => {
                 trace!("Drew prompt successfully");
@@ -273,7 +280,9 @@ impl UI {
             query.push(chr);
 
             // draw the character, save the cursor position, clear the screen after us
-            match write!(output, "{}{}{}", chr, self.save_cursor, self.clr_eos) {
+            match write!(output, "{}{}{}", chr,
+                         self.control.get_string("sc".to_owned(), vec![]).unwrap_or(format!("")),
+                         self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
                 Err(e) => return Err(StringError::new("Failed to output character", Some(Box::new(e)))),
                 Ok(_) => {
                     trace!("Outputted character successfully");
@@ -328,7 +337,7 @@ impl UI {
             }
 
             // restore the cursor
-            match write!(output, "{}", self.restore_cursor) {
+            match write!(output, "{}", self.control.get_string("rc".to_owned(), vec![]).unwrap_or(format!(""))) {
                 Err(e) => return Err(StringError::new("Failed to restore cursor", Some(Box::new(e)))),
                 Ok(_) => {
                     trace!("Restored cursor successfully");
