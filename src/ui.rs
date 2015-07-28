@@ -244,6 +244,51 @@ impl UI {
         Ok(instance)
     }
 
+    fn insert_match(&self, best_match: String) -> Result<(), StringError> {
+        // send the stop signal to the input thread
+        match self.chars_stop.send(()) {
+            Ok(_) => {
+                trace!("Successfully sent stop to input thread");
+            },
+            Err(e) => {
+                return Err(StringError::new("Failed to send stop signal to input thread", Some(Box::new(e))));
+            }
+        }
+
+        // simulate a space input to wake up the input thread
+        match ::bis_c::insert_input(" ") {
+            Ok(_) => {
+                trace!("Successfully simulated input");
+            },
+            Err(e) => {
+                return Err(StringError::new("Failed to simulate input to console", Some(Box::new(e))))
+            }
+        }
+
+        // wait for the input thread to exit
+        loop {
+            match self.chars.recv() {
+                Ok(_) => {
+                    trace!("Draining input thread");
+                },
+                Err(_) => {
+                    trace!("Thread has exited");
+                    break;
+                }
+            }
+        }
+
+        match ::bis_c::insert_input(best_match) {
+            Ok(_) => {
+                trace!("Successfully inserted best match");
+                Ok(())
+            },
+            Err(e) => {
+                Err(StringError::new("Failed to simulate input to console", Some(Box::new(e))))
+            }
+        }
+    }
+
     pub fn start(&mut self) -> Result<(), StringError> {
         // assume start on a new line
         // get handles for io
@@ -288,6 +333,7 @@ impl UI {
         let stop_chan = &self.stop;
 
         let mut best_match = None;
+        let mut stopped = false;
 
         loop {
             // this macro is bad and the rust people should feel bad
@@ -296,6 +342,9 @@ impl UI {
                 _ = stop_chan.recv() => {
                     // any event on this channel means stop
                     debug!("Event on stop thread, exiting");
+
+                    // set the stopped variable
+                    stopped = true;
 
                     // exit
                     break;
@@ -365,6 +414,9 @@ impl UI {
                     if chr.is_control() {
                         match chr {
                             EOT => {
+                                // stop
+                                stopped = true;
+
                                 // exit
                                 break;
                             },
@@ -459,53 +511,14 @@ impl UI {
             }
         }
 
-        // send the stop signal to the input thread
-        match self.chars_stop.send(()) {
-            Ok(_) => {
-                trace!("Successfully sent stop to input thread");
-            },
-            Err(e) => {
-                return Err(StringError::new("Failed to send stop signal to input thread", Some(Box::new(e))));
-            }
-        }
-
-        // simulate a space input to wake up the input thread
-        match ::bis_c::insert_input(" ") {
-            Ok(_) => {
-                trace!("Successfully simulated input");
-            },
-            Err(e) => {
-                return Err(StringError::new("Failed to simulate input to console", Some(Box::new(e))))
-            }
-        }
-
-        // wait for the input thread to exit
-        loop {
-            match self.chars.recv() {
-                Ok(_) => {
-                    trace!("Draining input thread");
+        if !stopped {
+            match best_match {
+                Some(m) => {
+                    try!(self.insert_match(m.into_owned()));
                 },
-                Err(_) => {
-                    trace!("Thread has exited");
-                    break;
+                None => {
+                    trace!("Not inserting best match");
                 }
-            }
-        }
-
-        // simulate the best line if there is one
-        match best_match {
-            Some(m) => {
-                match ::bis_c::insert_input(m.into_owned()) {
-                    Ok(_) => {
-                        trace!("Successfully inserted best match");
-                    },
-                    Err(e) => {
-                        return Err(StringError::new("Failed to simulate input to console", Some(Box::new(e))))
-                    }
-                }
-            },
-            None => {
-                trace!("Not inserting best match");
             }
         }
 
