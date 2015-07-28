@@ -17,6 +17,7 @@ mod search;
 mod error;
 mod bis_c;
 mod ui;
+mod constants;
 
 fn main() {
     // init logging

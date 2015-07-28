@@ -16,6 +16,7 @@ use std::thread;
 use bis_c::{TermTrack, TermSize};
 use error::StringError;
 use search::SearchBase;
+use constants::*;
 
 // TermControl contains utility funcitons for terminfo
 #[derive(Debug)]
@@ -249,8 +250,8 @@ impl UI {
         let mut query = String::new();
 
         // make space for our matches
-        match write!(output, "{}{}", String::from_iter(vec!['\n'; 10].into_iter()),
-                     self.control.get_string("cuu".to_owned(), vec![TermStack::Int(10)]).unwrap_or(format!(""))) {
+        match write!(output, "{}{}", String::from_iter(vec!['\n'; MATCH_NUMBER].into_iter()),
+                     self.control.get_string("cuu".to_owned(), vec![TermStack::Int(MATCH_NUMBER as isize)]).unwrap_or(format!(""))) {
             Err(e) => return Err(StringError::new("Failed to create space", Some(Box::new(e)))),
             Ok(_) => {
                 trace!("Successfully created space on terminal");

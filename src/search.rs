@@ -8,20 +8,7 @@ use std::cmp;
 use std::path;
 
 use error::StringError;
-
-const WHITESPACE_FACTOR: isize = 5;
-const WHITESPACE_REDUCE: isize = 2;
-const CLASS_FACTOR: isize = 3;
-const FIRST_FACTOR: isize = 3;
-const CLASS_REDUCE: isize = 2;
-
-const DIST_WEIGHT: isize = -10;
-const HEAT_WEIGHT: isize = 5;
-const FACTOR_REDUCE: isize = 50;
-
-const MAX_LEN: usize = 80;
-
-const MATCH_NUMBER: usize = 10;
+use constants::*;
 
 #[derive(PartialEq)]
 enum CharClass {
