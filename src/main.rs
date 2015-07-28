@@ -2,9 +2,7 @@
 #![feature(collections)]
 #![feature(into_cow)]
 #![feature(iter_arith)]
-#![feature(str_escape)]
 #![feature(io)]
-#![feature(convert)]
 #![feature(mpsc_select)]
 extern crate libc;
 #[macro_use]

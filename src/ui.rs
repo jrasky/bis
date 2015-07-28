@@ -6,7 +6,6 @@ use unicode_width::UnicodeWidthStr;
 use std::sync::mpsc::{Receiver, Sender};
 use std::borrow::{Cow, Borrow};
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::iter::FromIterator;
 
 use std::sync::mpsc;
