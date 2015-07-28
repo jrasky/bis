@@ -47,30 +47,6 @@ pub struct UI {
     stop: Receiver<()>
 }
 
-impl Drop for UI {
-    fn drop(&mut self) {
-        debug!("Clearing screen on exit");
-        let mut output = io::stdout();
-        match write!(output, "{}", self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
-            Ok(_) => {
-                trace!("Cleared screen successfully");
-            },
-            Err(e) => {
-                error!("Failed to clear screen: {}", e);
-            }
-        }
-        debug!("Flushing output");
-        match output.flush() {
-            Ok(_) => {
-                trace!("Flushed screen successfully");
-            },
-            Err(e) => {
-                error!("Failed to flush screen: {}", e);
-            }
-        }
-    }
-}
-
 impl TermControl {
     pub fn create() -> Result<TermControl, StringError> {
         debug!("Getting terminal info");
@@ -307,6 +283,8 @@ impl UI {
         let chars_chan = &self.chars;
         let stop_chan = &self.stop;
 
+        let mut best_match = None;
+
         loop {
             // this macro is bad and the rust people should feel bad
             // on the other hand, multi-threaded UI! Yay!
@@ -314,6 +292,31 @@ impl UI {
                 _ = stop_chan.recv() => {
                     // any event on this channel means stop
                     debug!("Event on stop thread, exiting");
+                    match best_match {
+                        Some(m) => {
+                            // redraw the best match
+                            match write!(output, "\r{}", m) {
+                                Err(e) => return Err(StringError::new("Failed to write best match", Some(Box::new(e)))),
+                                Ok(_) => {
+                                    trace!("Drew best match successfully");
+                                }
+                            }
+                        },
+                        None => {
+                            trace!("Not redrawing best match");
+                        }
+                    }
+
+                    // clear the screen and move to a new line
+                    match write!(output, "{}\n", 
+                                 self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
+                        Err(e) => return Err(StringError::new("Failed to clear screen", Some(Box::new(e)))),
+                        Ok(_) => {
+                            trace!("Cleared screen successfully");
+                        }
+                    }
+
+                    // exit
                     break;
                 },
                 maybe_matches = matches_chan.recv() => {
@@ -322,6 +325,16 @@ impl UI {
                         Err(e) => return Err(StringError::new("Query thread hung up", Some(Box::new(e))))
                     };
                     debug!("Got matches: {:?}", matches);
+
+                    // update the best match if we have one
+                    match matches.first() {
+                        Some(m) => {
+                            best_match = Some(m.clone());
+                        },
+                        None => {
+                            best_match = None;
+                        }
+                    }
 
                     // draw the matches
                     for item in matches.into_iter() {
@@ -402,6 +415,16 @@ impl UI {
                 Err(e) => {
                     return Err(StringError::new("Failed to flush output", Some(Box::new(e))));
                 }
+            }
+        }
+
+        // flush the output
+        match output.flush() {
+            Ok(_) => {
+                trace!("Successfully flushed output");
+            },
+            Err(e) => {
+                return Err(StringError::new("Failed to flush output", Some(Box::new(e))));
             }
         }
 
