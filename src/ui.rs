@@ -43,7 +43,8 @@ pub struct UI {
     control: TermControl,
     query: Sender<String>,
     matches: Receiver<Vec<Cow<'static, str>>>,
-    chars: Receiver<char>
+    chars: Receiver<char>,
+    stop: Receiver<()>
 }
 
 impl Drop for UI {
@@ -208,6 +209,15 @@ impl UI {
             }
         }
 
+        debug!("Masking sigint on main thread");
+
+        match ::bis_c::mask_sigint() {
+            Ok(_) => {
+                trace!("Set signal mask successfully");
+            },
+            Err(e) => return Err(StringError::new("Failed to mask signal", Some(Box::new(e))))
+        }
+
         debug!("Starting search thread");
 
         trace!("Creating thread primitives");
@@ -229,6 +239,16 @@ impl UI {
             input_thread(chars_tx);
         });
 
+        debug!("Starting signal thread");
+
+        trace!("Creating thread primitives");
+        let (stop_tx, stop_rx) = mpsc::channel();
+
+        trace!("Starting thread");
+        thread::spawn(move || {
+            signal_thread(stop_tx);
+        });
+
         debug!("Creating UI instance");
         let instance = UI {
             track: track,
@@ -236,7 +256,8 @@ impl UI {
             control: control,
             query: query_tx,
             matches: matches_rx,
-            chars: chars_rx
+            chars: chars_rx,
+            stop: stop_rx
         };
         
         trace!("Instance creation successful");
@@ -284,9 +305,17 @@ impl UI {
         // are you kidding me with this stupid macro bullshit
         let matches_chan = &self.matches;
         let chars_chan = &self.chars;
+        let stop_chan = &self.stop;
 
         loop {
+            // this macro is bad and the rust people should feel bad
+            // on the other hand, multi-threaded UI! Yay!
             select! {
+                _ = stop_chan.recv() => {
+                    // any event on this channel means stop
+                    debug!("Event on stop thread, exiting");
+                    break;
+                },
                 maybe_matches = matches_chan.recv() => {
                     let matches = match maybe_matches {
                         Ok(m) => m,
@@ -463,4 +492,39 @@ fn input_thread(chars: Sender<char>) {
     }
 
     debug!("Input thread ran out of input");
+}
+
+// this thread waits for interrupt signals so we can exit cleanly
+fn signal_thread(stop: Sender<()>) {
+    debug!("Starting signal thread");
+
+    match ::bis_c::mask_sigint() {
+        Ok(_) => {
+            trace!("Set signal mask successfully");
+        },
+        Err(e) => {
+            panic!("Error setting signal mask: {:?}", e);
+        }
+    }
+
+    match ::bis_c::wait_sigint() {
+        Ok(_) => {
+            trace!("Waited for signal successfully");
+        },
+        Err(e) => {
+            panic!("Error waiting for signal: {:?}", e);
+        }
+    }
+
+    match stop.send(()) {
+        Ok(_) => {
+            trace!("Sent stop signal successfully");
+        },
+        Err(e) => {
+            // this doesn't necessarily mean an error
+            debug!("Stop thread failed to send: {:?}", e);
+        }
+    }
+
+    debug!("Thread got interrupt signal, exiting");
 }

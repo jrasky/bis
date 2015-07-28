@@ -40,6 +40,8 @@ mod c {
         pub fn bis_prepare_terminal() -> c_int;
         pub fn bis_restore_terminal() -> c_int;
         pub fn bis_get_terminal_size(size: *mut bis_term_size_t) -> c_int;
+        pub fn bis_mask_sigint() -> c_int;
+        pub fn bis_wait_sigint() -> c_int;
     }
 
     pub unsafe fn get_bis_error() -> StringError {
@@ -102,5 +104,21 @@ impl TermTrack {
             }),
             _ => Err(unsafe {c::get_bis_error()})
         }
+    }
+}
+
+pub fn mask_sigint() -> Result<(), StringError> {
+    debug!("Masking sigint");
+    match unsafe {c::bis_mask_sigint()} {
+        0 => Ok(()),
+        _ => Err(unsafe {c::get_bis_error()})
+    }
+}
+
+pub fn wait_sigint() -> Result<(), StringError> {
+    debug!("Waiting for sigint");
+    match unsafe {c::bis_wait_sigint()} {
+        0 => Ok(()),
+        _ => Err(unsafe {c::get_bis_error()})
     }
 }

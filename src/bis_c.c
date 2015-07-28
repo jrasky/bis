@@ -2,6 +2,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <signal.h>
+#include <errno.h>
 
 struct bis_error_info_t {
   char *error_str;
@@ -86,4 +88,48 @@ int bis_get_terminal_size(struct bis_term_size_t *size) {
 
   // return success
   return 0;
+}
+
+int bis_mask_sigint() {
+  sigset_t set;
+
+  sigemptyset(&set);
+  sigaddset(&set, SIGINT);
+  if (sigprocmask(SIG_BLOCK, &set, NULL) != 0) {
+    bis_error_info.error_str = "failed to mask thread signal mask";
+    bis_error_info.is_errno = 1;
+    return -1;
+  }
+
+  // return success
+  return 0;
+}
+
+int bis_wait_sigint() {
+  sigset_t set;
+
+  sigemptyset(&set);
+  sigaddset(&set, SIGINT);
+
+  int result;
+
+  for (;;) {
+    if ((result = sigwaitinfo(&set, NULL)) == -1) {
+      if (errno != EINTR) {
+        bis_error_info.error_str = "failed to wait for signal";
+        bis_error_info.is_errno = 1;
+        return -1;
+      }
+
+      // otherwise try again
+    } else if (result != SIGINT) {
+      // we caught some other signal
+      bis_error_info.error_str = "Caught signal other than SIGINT";
+      bis_error_info.is_errno = 0;
+      return -1;
+    } else {
+      // we caught the signal we wanted
+      return 0;
+    }
+  }
 }
