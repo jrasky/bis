@@ -424,6 +424,22 @@ impl UI {
             }
         }
 
+        // draw the best match if we have one
+        match best_match {
+            Some(ref m) => {
+                // redraw the best match
+                match write!(output, " -> {}", m) {
+                    Err(e) => return Err(StringError::new("Failed to write best match", Some(Box::new(e)))),
+                    Ok(_) => {
+                        trace!("Drew best match successfully");
+                    }
+                }
+            },
+            None => {
+                trace!("Not redrawing best match");
+            }
+        }
+
         // clear the screen and move to a new line
         match write!(output, "{}\n", 
                      self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
