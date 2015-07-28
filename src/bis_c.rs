@@ -1,5 +1,7 @@
 // bindings into bis_c.c
 
+use std::ffi::CString;
+
 use error::StringError;
 
 // this object exists to track Rust's memory model
@@ -125,13 +127,14 @@ pub fn wait_sigint() -> Result<(), StringError> {
 }
 
 pub fn insert_input<T: Into<Vec<u8>>>(input: T) -> Result<(), StringError> {
-    let vec = input.into();
+    let cstr = match CString::new(input) {
+        Ok(s) => s,
+        Err(e) => return Err(StringError::new("Failed to create CString", Some(Box::new(e))))
+    };
 
-    for byte in vec.into_iter() {
-        match unsafe {c::bis_insert_input(&(byte as ::libc::c_char))} {
-            0 => {},
-            _ => return Err(unsafe {c::get_bis_error()})
-        }
+    match unsafe {c::bis_insert_input(cstr.as_ptr())} {
+        0 => {},
+        _ => return Err(unsafe {c::get_bis_error()})
     }
 
     // return success

@@ -136,10 +136,12 @@ int bis_wait_sigint() {
 
 int bis_insert_input(const char *input) {
   // insert the input string into the input queue
-  if (ioctl(STDIN_FILENO, TIOCSTI, input) != 0) {
-    bis_error_info.error_str = "ioctl call failed";
-    bis_error_info.is_errno = 1;
-    return -1;
+  for (; *input != 0; input++) {
+    if (ioctl(STDIN_FILENO, TIOCSTI, input) != 0) {
+      bis_error_info.error_str = "ioctl call failed";
+      bis_error_info.is_errno = 1;
+      return -1;
+    }
   }
 
   // returnt success
