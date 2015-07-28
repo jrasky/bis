@@ -5,6 +5,7 @@
 #![feature(str_escape)]
 #![feature(io)]
 #![feature(convert)]
+#![feature(mpsc_select)]
 extern crate libc;
 #[macro_use]
 extern crate log;

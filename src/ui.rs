@@ -26,8 +26,12 @@ struct TermControl {
 
 #[derive(PartialEq, Clone, Debug)]
 enum TermStack {
+    // here for correctness
+    #[allow(dead_code)]
     Str(String),
     Int(isize),
+    // here for correctness
+    #[allow(dead_code)]
     Bool(bool)
 }
 
@@ -40,6 +44,7 @@ pub struct UI {
     control: TermControl,
     query: Sender<String>,
     matches: Receiver<Vec<Cow<'static, str>>>,
+    chars: Receiver<char>
 }
 
 impl Drop for UI {
@@ -211,8 +216,18 @@ impl UI {
         let (matches_tx, matches_rx) = mpsc::channel();
 
         trace!("Starting thread");
-        thread::spawn(move|| {
+        thread::spawn(move || {
             search_thread(query_rx, matches_tx);
+        });
+
+        debug!("Starting input thread");
+
+        trace!("Creating thread primitives");
+        let (chars_tx, chars_rx) = mpsc::channel();
+
+        trace!("Starting thread");
+        thread::spawn(move || {
+            input_thread(chars_tx);
         });
 
         debug!("Creating UI instance");
@@ -222,6 +237,7 @@ impl UI {
             control: control,
             query: query_tx,
             matches: matches_rx,
+            chars: chars_rx
         };
         
         trace!("Instance creation successful");
@@ -232,13 +248,11 @@ impl UI {
         // assume start on a new line
         // get handles for io
         let stdout = io::stdout();
-        let stdin = io::stdin();
         let mut output = stdout.lock();
-        let input = stdin.lock();
 
         let mut query = String::new();
 
-        // print a bunch of newlines, and then move back up
+        // make space for our matches
         match write!(output, "{}{}", String::from_iter(vec!['\n'; 10].into_iter()),
                      self.control.get_string("cuu".to_owned(), vec![TermStack::Int(10)]).unwrap_or(format!(""))) {
             Err(e) => return Err(StringError::new("Failed to create space", Some(Box::new(e)))),
@@ -268,79 +282,87 @@ impl UI {
             }
         }
 
-        // wait for input
-        for maybe_chr in input.chars() {
-            let chr = match maybe_chr {
-                Err(e) => return Err(StringError::new("Failed to read character", Some(Box::new(e)))),
-                Ok(c) => c
-            };
-            trace!("Got character: {:?}", chr);
+        // are you kidding me with this stupid macro bullshit
+        let matches_chan = &self.matches;
+        let chars_chan = &self.chars;
 
-            // push the character onto the query string
-            query.push(chr);
+        loop {
+            select! {
+                maybe_matches = matches_chan.recv() => {
+                    let matches = match maybe_matches {
+                        Ok(m) => m,
+                        Err(e) => return Err(StringError::new("Query thread hung up", Some(Box::new(e))))
+                    };
+                    debug!("Got matches: {:?}", matches);
 
-            // draw the character, save the cursor position, clear the screen after us
-            match write!(output, "{}{}{}", chr,
-                         self.control.get_string("sc".to_owned(), vec![]).unwrap_or(format!("")),
-                         self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
-                Err(e) => return Err(StringError::new("Failed to output character", Some(Box::new(e)))),
-                Ok(_) => {
-                    trace!("Outputted character successfully");
-                }
-            }
+                    // draw the matches
+                    for item in matches.into_iter() {
+                        if UnicodeWidthStr::width(item.as_ref()) > self.size.cols {
+                            let mut owned = item.into_owned();
+                            while UnicodeWidthStr::width((&owned as &AsRef<str>).as_ref()) > self.size.cols {
+                                // truncate long lines
+                                owned.pop();
+                            }
+                            // draw the truncated item
+                            match write!(output, "\n{}", owned) {
+                                Err(e) => return Err(StringError::new("Failed to draw match", Some(Box::new(e)))),
+                                Ok(_) => {
+                                    trace!("Drew match successfully");
+                                }
+                            }
+                        } else {
+                            // draw the match after a newline
+                            match write!(output, "\n{}", item) {
+                                Err(e) => return Err(StringError::new("Failed to draw match", Some(Box::new(e)))),
+                                Ok(_) => {
+                                    trace!("Drew match successfully");
+                                }
+                            }
+                        }
+                    }
 
-            // send the search thread our query
-            debug!("Sending {} to search thread", &query);
-            match self.query.send(query.clone()) {
-                Ok(_) => {
-                    trace!("Send successful");
+                    // restore the cursor
+                    match write!(output, "{}", self.control.get_string("rc".to_owned(), vec![]).unwrap_or(format!(""))) {
+                        Err(e) => return Err(StringError::new("Failed to restore cursor", Some(Box::new(e)))),
+                        Ok(_) => {
+                            trace!("Restored cursor successfully");
+                        }
+                    }
                 },
-                Err(e) => {
-                    return Err(StringError::new("Failed to send to search thread", Some(Box::new(e))));
-                }
-            }
+                maybe_chr = chars_chan.recv() => {
+                    let chr = match maybe_chr {
+                        Ok(c) => c,
+                        Err(e) => {
+                            // io hung up, exit
+                            debug!("IO thread hung up: {:?}", e);
+                            break;
+                        }
+                    };
+                    debug!("Got character: {:?}", chr);
 
-            // wait for matches
-            let matches = match self.matches.recv() {
-                Ok(m) => m,
-                Err(e) => {
-                    return Err(StringError::new("Failed to read matches", Some(Box::new(e))));
-                }
-            };
+                    // push the character onto the query string
+                    query.push(chr);
 
-            debug!("Got matches: {:?}", &matches);
-
-            // draw the matches
-            for item in matches.into_iter() {
-                if UnicodeWidthStr::width(item.as_ref()) > self.size.cols {
-                    let mut owned = item.into_owned();
-                    while UnicodeWidthStr::width((&owned as &AsRef<str>).as_ref()) > self.size.cols {
-                        // truncate long lines
-                        owned.pop();
-                    }
-                    // draw the truncated item
-                    match write!(output, "\n{}", owned) {
-                        Err(e) => return Err(StringError::new("Failed to draw match", Some(Box::new(e)))),
+                    // draw the character, save the cursor position, clear the screen after us
+                    match write!(output, "{}{}{}", chr,
+                                 self.control.get_string("sc".to_owned(), vec![]).unwrap_or(format!("")),
+                                 self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
+                        Err(e) => return Err(StringError::new("Failed to output character", Some(Box::new(e)))),
                         Ok(_) => {
-                            trace!("Drew match successfully");
+                            trace!("Outputted character successfully");
                         }
                     }
-                } else {
-                    // draw the match after a newline
-                    match write!(output, "\n{}", item) {
-                        Err(e) => return Err(StringError::new("Failed to draw match", Some(Box::new(e)))),
+
+                    // send the search thread our query
+                    debug!("Sending {} to search thread", &query);
+                    match self.query.send(query.clone()) {
                         Ok(_) => {
-                            trace!("Drew match successfully");
+                            trace!("Send successful");
+                        },
+                        Err(e) => {
+                            return Err(StringError::new("Failed to send to search thread", Some(Box::new(e))));
                         }
                     }
-                }
-            }
-
-            // restore the cursor
-            match write!(output, "{}", self.control.get_string("rc".to_owned(), vec![]).unwrap_or(format!(""))) {
-                Err(e) => return Err(StringError::new("Failed to restore cursor", Some(Box::new(e)))),
-                Ok(_) => {
-                    trace!("Restored cursor successfully");
                 }
             }
 
@@ -360,6 +382,7 @@ impl UI {
     }
 }
 
+// this thread waits for queries, and responds with search matches
 pub fn search_thread(query: Receiver<String>,
                      matches: Sender<Vec<Cow<'static, str>>>) {
     debug!("Starting query thread");
@@ -411,4 +434,34 @@ pub fn search_thread(query: Receiver<String>,
             }
         }
     }
+}
+
+// this thread waits for input on stdin and sends that input back
+fn input_thread(chars: Sender<char>) {
+    debug!("Starting input thread");
+
+    debug!("Getting stdin lock");
+    let input = io::stdin();
+
+    for maybe_chr in input.chars() {
+        match maybe_chr {
+            Err(e) => {
+                debug!("Input thread exiting: {}", e);
+                break;
+            },
+            Ok(c) => {
+                debug!("Got character: {:?}", c);
+                match chars.send(c) {
+                    Err(e) => {
+                        debug!("Search thread exiting: {:?}", e);
+                    },
+                    Ok(_) => {
+                        trace!("Character sent successfully");
+                    }
+                }
+            }
+        }
+    }
+
+    debug!("Input thread ran out of input");
 }
