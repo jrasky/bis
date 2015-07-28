@@ -80,27 +80,7 @@ impl SearchBase {
 
         for m_line in input_file.lines() {
             let line = match m_line {
-                Ok(mut line) => {
-                    if line.len() > MAX_LEN {
-                        let mut cut_at = None;
-                        for (idx, _) in line.char_indices() {
-                            if idx > MAX_LEN {
-                                cut_at = Some(idx);
-                                break;
-                            }
-                        }
-                        match cut_at {
-                            None => {
-                                // do nothing, last character spans the 80th byte
-                            },
-                            Some(idx) => {
-                                line.truncate(idx);
-                            }
-                        }
-                    }
-                    // return the result
-                    line
-                },
+                Ok(line) => line,
                 Err(e) => {
                     return Err(StringError::new("Failed to read line", Some(Box::new(e))));
                 }
@@ -186,6 +166,11 @@ impl LineInfo {
         let mut cs_change = false;
 
         for (idx, c) in line.chars().enumerate() {
+            // don't process characters beyond MAX_LEN
+            if idx > MAX_LEN {
+                break;
+            }
+
             // don't map whitespace
             if !c.is_whitespace() {
                 // update the character class change score if needed
