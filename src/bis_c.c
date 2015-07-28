@@ -63,7 +63,7 @@ int bis_restore_terminal() {
   }
 
   // set terminal options
-  if (tcsetattr(STDOUT_FILENO, TCSAFLUSH, &bis_term_info) != 0) {
+  if (tcsetattr(STDOUT_FILENO, TCSANOW, &bis_term_info) != 0) {
     bis_error_info.error_str = "Error restoring terminal attributes";
     bis_error_info.is_errno = 1;
     return -1;
@@ -96,7 +96,7 @@ int bis_mask_sigint() {
   sigemptyset(&set);
   sigaddset(&set, SIGINT);
   if (sigprocmask(SIG_BLOCK, &set, NULL) != 0) {
-    bis_error_info.error_str = "failed to mask thread signal mask";
+    bis_error_info.error_str = "sigprocmask failed";
     bis_error_info.is_errno = 1;
     return -1;
   }
@@ -116,7 +116,7 @@ int bis_wait_sigint() {
   for (;;) {
     if ((result = sigwaitinfo(&set, NULL)) == -1) {
       if (errno != EINTR) {
-        bis_error_info.error_str = "failed to wait for signal";
+        bis_error_info.error_str = "sigwaitinfo failed";
         bis_error_info.is_errno = 1;
         return -1;
       }
@@ -132,4 +132,16 @@ int bis_wait_sigint() {
       return 0;
     }
   }
+}
+
+int bis_insert_input(const char *input) {
+  // insert the input string into the input queue
+  if (ioctl(STDIN_FILENO, TIOCSTI, input) != 0) {
+    bis_error_info.error_str = "ioctl call failed";
+    bis_error_info.is_errno = 1;
+    return -1;
+  }
+
+  // returnt success
+  return 0;
 }

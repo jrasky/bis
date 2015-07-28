@@ -42,6 +42,7 @@ mod c {
         pub fn bis_get_terminal_size(size: *mut bis_term_size_t) -> c_int;
         pub fn bis_mask_sigint() -> c_int;
         pub fn bis_wait_sigint() -> c_int;
+        pub fn bis_insert_input(input: *const c_char) -> c_int;
     }
 
     pub unsafe fn get_bis_error() -> StringError {
@@ -121,4 +122,18 @@ pub fn wait_sigint() -> Result<(), StringError> {
         0 => Ok(()),
         _ => Err(unsafe {c::get_bis_error()})
     }
+}
+
+pub fn insert_input<T: Into<Vec<u8>>>(input: T) -> Result<(), StringError> {
+    let vec = input.into();
+
+    for byte in vec.into_iter() {
+        match unsafe {c::bis_insert_input(&(byte as ::libc::c_char))} {
+            0 => {},
+            _ => return Err(unsafe {c::get_bis_error()})
+        }
+    }
+
+    // return success
+    Ok(())
 }

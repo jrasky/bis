@@ -45,6 +45,7 @@ pub struct UI {
     query: Sender<String>,
     matches: Receiver<Vec<Cow<'static, str>>>,
     chars: Receiver<char>,
+    chars_stop: Sender<()>,
     stop: Receiver<()>
 }
 
@@ -210,10 +211,11 @@ impl UI {
 
         trace!("Creating thread primitives");
         let (chars_tx, chars_rx) = mpsc::channel();
+        let (chars_stop_tx, chars_stop_rx) = mpsc::channel();
 
         trace!("Starting thread");
         thread::spawn(move || {
-            input_thread(chars_tx);
+            input_thread(chars_tx, chars_stop_rx);
         });
 
         debug!("Starting signal thread");
@@ -234,6 +236,7 @@ impl UI {
             query: query_tx,
             matches: matches_rx,
             chars: chars_rx,
+            chars_stop: chars_stop_tx,
             stop: stop_rx
         };
         
@@ -244,8 +247,8 @@ impl UI {
     pub fn start(&mut self) -> Result<(), StringError> {
         // assume start on a new line
         // get handles for io
-        let stdout = io::stdout();
-        let mut output = stdout.lock();
+        let handle = io::stdout();
+        let mut output = handle.lock();
 
         let mut query = String::new();
 
@@ -293,29 +296,6 @@ impl UI {
                 _ = stop_chan.recv() => {
                     // any event on this channel means stop
                     debug!("Event on stop thread, exiting");
-                    match best_match {
-                        Some(m) => {
-                            // redraw the best match
-                            match write!(output, "\r{}", m) {
-                                Err(e) => return Err(StringError::new("Failed to write best match", Some(Box::new(e)))),
-                                Ok(_) => {
-                                    trace!("Drew best match successfully");
-                                }
-                            }
-                        },
-                        None => {
-                            trace!("Not redrawing best match");
-                        }
-                    }
-
-                    // clear the screen and move to a new line
-                    match write!(output, "{}\n", 
-                                 self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
-                        Err(e) => return Err(StringError::new("Failed to clear screen", Some(Box::new(e)))),
-                        Ok(_) => {
-                            trace!("Cleared screen successfully");
-                        }
-                    }
 
                     // exit
                     break;
@@ -382,27 +362,52 @@ impl UI {
                     };
                     debug!("Got character: {:?}", chr);
 
-                    // push the character onto the query string
-                    query.push(chr);
-
-                    // draw the character, save the cursor position, clear the screen after us
-                    match write!(output, "{}{}{}", chr,
-                                 self.control.get_string("sc".to_owned(), vec![]).unwrap_or(format!("")),
-                                 self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
-                        Err(e) => return Err(StringError::new("Failed to output character", Some(Box::new(e)))),
-                        Ok(_) => {
-                            trace!("Outputted character successfully");
+                    if chr.is_control() {
+                        match chr {
+                            EOT => {
+                                // exit
+                                break;
+                            },
+                            '\n' => {
+                                // exit
+                                break;
+                            },
+                            _ => {
+                                // unknown character
+                                // \u{7} is BEL
+                                match write!(output, "\u{7}") {
+                                    Err(e) => return Err(StringError::new("Failed to output bell character", Some(Box::new(e)))),
+                                    Ok(_) => {
+                                        trace!("Successfully outputted bel character");
+                                    }
+                                }
+                            }
                         }
-                    }
+                    } else {
+                        if !chr.is_whitespace() {
+                            // push the character onto the query string
+                            query.push(chr);
+                        }
 
-                    // send the search thread our query
-                    debug!("Sending {} to search thread", &query);
-                    match self.query.send(query.clone()) {
-                        Ok(_) => {
-                            trace!("Send successful");
-                        },
-                        Err(e) => {
-                            return Err(StringError::new("Failed to send to search thread", Some(Box::new(e))));
+                        // draw the character, save the cursor position, clear the screen after us
+                        match write!(output, "{}{}{}", chr,
+                                     self.control.get_string("sc".to_owned(), vec![]).unwrap_or(format!("")),
+                                     self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
+                            Err(e) => return Err(StringError::new("Failed to output character", Some(Box::new(e)))),
+                            Ok(_) => {
+                                trace!("Outputted character successfully");
+                            }
+                        }
+
+                        // send the search thread our query
+                        debug!("Sending {} to search thread", &query);
+                        match self.query.send(query.clone()) {
+                            Ok(_) => {
+                                trace!("Send successful");
+                            },
+                            Err(e) => {
+                                return Err(StringError::new("Failed to send to search thread", Some(Box::new(e))));
+                            }
                         }
                     }
                 }
@@ -419,6 +424,15 @@ impl UI {
             }
         }
 
+        // clear the screen and move to a new line
+        match write!(output, "{}\n", 
+                     self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
+            Err(e) => return Err(StringError::new("Failed to clear screen", Some(Box::new(e)))),
+            Ok(_) => {
+                trace!("Cleared screen successfully");
+            }
+        }
+
         // flush the output
         match output.flush() {
             Ok(_) => {
@@ -429,7 +443,58 @@ impl UI {
             }
         }
 
+        // send the stop signal to the input thread
+        match self.chars_stop.send(()) {
+            Ok(_) => {
+                trace!("Successfully sent stop to input thread");
+            },
+            Err(e) => {
+                return Err(StringError::new("Failed to send stop signal to input thread", Some(Box::new(e))));
+            }
+        }
+
+        // simulate a space input to wake up the input thread
+        match ::bis_c::insert_input(" ") {
+            Ok(_) => {
+                trace!("Successfully simulated input");
+            },
+            Err(e) => {
+                return Err(StringError::new("Failed to simulate input to console", Some(Box::new(e))))
+            }
+        }
+
+        // wait for the input thread to exit
+        loop {
+            match self.chars.recv() {
+                Ok(_) => {
+                    trace!("Draining input thread");
+                },
+                Err(_) => {
+                    trace!("Thread has exited");
+                    break;
+                }
+            }
+        }
+
+        // simulate the best line if there is one
+        match best_match {
+            Some(m) => {
+                match ::bis_c::insert_input(m.into_owned()) {
+                    Ok(_) => {
+                        trace!("Successfully inserted best match");
+                    },
+                    Err(e) => {
+                        return Err(StringError::new("Failed to simulate input to console", Some(Box::new(e))))
+                    }
+                }
+            },
+            None => {
+                trace!("Not inserting best match");
+            }
+        }
+
         // Return success
+        // Preferably, don't read stdin after this
         Ok(())
     }
 }
@@ -489,13 +554,25 @@ pub fn search_thread(query: Receiver<String>,
 }
 
 // this thread waits for input on stdin and sends that input back
-fn input_thread(chars: Sender<char>) {
+fn input_thread(chars: Sender<char>, stop: Receiver<()>) {
     debug!("Starting input thread");
 
     debug!("Getting stdin lock");
-    let input = io::stdin();
+    let handle = io::stdin();
+    let input = handle.lock();
 
     for maybe_chr in input.chars() {
+        // see if a stop has been requested
+        match stop.try_recv() {
+            Err(_) => {
+                trace!("Not stopping thread");
+            },
+            Ok(_) => {
+                debug!("Input thread exiting");
+                break;
+            }
+        }
+
         match maybe_chr {
             Err(e) => {
                 debug!("Input thread exiting: {}", e);
