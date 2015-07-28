@@ -19,8 +19,7 @@ use search::SearchBase;
 
 // TermControl contains utility funcitons for terminfo
 struct TermControl {
-    strings: HashMap<String, String>,
-    globals: HashMap<char, TermStack>
+    strings: HashMap<String, String>
 }
 
 #[derive(PartialEq)]
@@ -88,12 +87,12 @@ impl TermControl {
 
         // right now all we care about are the strings
         Ok(TermControl {
-            strings: strings,
-            globals: HashMap::default()
+            strings: strings
         })
     }
 
     pub fn get_string<T: Borrow<String>>(&mut self, name: T, params: Vec<TermStack>) -> Option<String> {
+        // only implement what we're actually using in the UI
         let sequence = match self.strings.get(name) {
             None => return None,
             Some(s) => {
@@ -103,11 +102,9 @@ impl TermControl {
         };
 
         let mut escaped = false;
-        
+        let mut stack: Vec<TermStack> = vec![];
+        let mut result = String::default();
         let mut escape = String::default();
-        let result = String::default();
-        let stack: Vec<TermStack> = vec![];
-        let mut locals: HashMap<char, TermStack> = HashMap::default();
 
         for c in sequence.chars() {
             if !escaped {
@@ -117,266 +114,24 @@ impl TermControl {
                     result.push(c);
                 }
             } else if escape.is_empty() {
-                if c == '%' {
-                    result.push('%');
-                    escaped = false;
-                } else if c == 'c' {
+                if c == 'd' {
                     match stack.pop() {
-                        Some(Str(s)) => {
-                            if !s.is_empty() {
-                                result.push(s[0]);
-                            }
+                        Some(Int(c)) => {
+                            result.push_all(format!("{}", c).as_ref());
                         },
                         _ => {}
                     }
 
                     escaped = false;
-                } else if c == 's' {
-                    match stack.pop() {
-                        Some(Str(s)) => {
-                            result.push_str(s.as_str())
-                        },
-                        _ => {}
-                    }
-
+                } else if c == 'p' {
+                    escaped.push('p');
+                } else {
+                    error!("Unknown escape character: {:?}", c);
                     escaped = false;
-                } else if c == 'l' {
-                    let len = 0;
-                    let push;
-                    match stack.last() {
-                        Some(Str(s)) => {
-                            len = s.len() as isize;
-                            push = true;
-                        },
-                        _ => {
-                            push = false;
-                        }
-                    }
-                    if push {
-                        stack.push(Int(len));
-                    }
-
-                    escaped = false;
-                } else if c == 'i' {
-                    match params.get_mut(0) {
-                        Some(&mut Int(ref mut i)) => {
-                            i += 1;
-                        },
-                        _ => {}
-                    }
-
-                    match params.get_mut(1) {
-                        Some(&mut Int(ref mut i)) => {
-                            i += 1;
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '+' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                stack.push(Int(i + oi));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '-' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                stack.push(Int(i - oi));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '*' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                stack.push(Int(i * oi));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '/' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                if oi != 0 {
-                                    stack.push(Int(i / oi));
-                                }
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == 'm' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                stack.push(Int(i % oi));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '&' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                stack.push(Int(i & oi));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '|' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                stack.push(Int(i | oi));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '^' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                stack.push(Int(i ^ oi));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '=' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(v) => match second {
-                            Some(ov) => {
-                                stack.push(Bool(v == ov));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '>' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                stack.push(Bool(i > oi));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '>' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Int(i)) => match second {
-                            Some(Int(oi)) => {
-                                stack.push(Bool(i < oi));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == 'A' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Bool(b)) => match second {
-                            Some(Bool(ob)) => {
-                                stack.push(Bool(b && ob));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == 'O' {
-                    let first = stack.pop();
-                    let second = stack.pop();
-                    match first {
-                        Some(Bool(b)) => match second {
-                            Some(Bool(ob)) => {
-                                stack.push(Bool(b || ob));
-                            },
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '!' {
-                    let item = stack.pop();
-                    match item {
-                        Some(Bool(b)) => {
-                            stack.push(Bool(!b));
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
-                } else if c == '~' {
-                    let item = stack.pop();
-                    match item {
-                        Some(Int(b)) => {
-                            stack.push(Int(!b));
-                        },
-                        _ => {}
-                    }
-
-                    escaped = false;
+                }
+            } else {
+                if escape == "p" {
+                    
                 }
             }
         }
