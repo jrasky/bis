@@ -9,3 +9,5 @@ Usage is pretty simple:
  - if you see a line you like, press enter, and bis will return and put the line on your prompt (but won't press enter)
  - if you change your mind, press ```C-d``` or ```C-c```. Bis will put what it would have matched to, if anything, but it won't be put on your prompt.
  - if you want to start over, pruss ```C-u``` to clear the line
+
+This software is licensed under the Apache License, Version 2.0. See LICENSE for more details.
