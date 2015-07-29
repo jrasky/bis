@@ -246,8 +246,17 @@ impl LineInfo {
     fn query_sequence<T: AsRef<str>>(&self, query_item: T) -> Option<Vec<Vec<usize>>> {
         let query = query_item.as_ref();
         let mut positions: Vec<Vec<usize>> = vec![];
+        let mut match_len = query.len();
 
         for c in query.chars() {
+            // ignore whitespace characters
+            if c.is_whitespace() {
+                trace!("Skipping whitespace character");
+                match_len -= 1;
+                continue;
+            }
+
+            trace!("Matching character: {:?}", c);
             match self.char_map.get(&c) {
                 None => break,
                 Some(list) => {
@@ -282,7 +291,7 @@ impl LineInfo {
             }
         }
 
-        if positions.len() == query.len() {
+        if positions.len() == match_len {
             Some(positions)
         } else {
             None

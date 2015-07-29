@@ -436,10 +436,8 @@ impl UI {
                             }
                         }
                     } else {
-                        if !chr.is_whitespace() {
-                            // push the character onto the query string
-                            query.push(chr);
-                        }
+                        // push the character onto the query string
+                        query.push(chr);
 
                         // draw the character, save the cursor position, clear the screen after us
                         match write!(output, "{}{}{}", chr,
