@@ -1,4 +1,5 @@
 #![feature(cstr_to_str)]
+#![feature(convert)]
 #![feature(collections)]
 #![feature(into_cow)]
 #![feature(iter_arith)]

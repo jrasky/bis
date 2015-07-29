@@ -15,3 +15,5 @@ pub const MATCH_NUMBER: usize = 10;
 
 pub const EOT: char = '\u{4}';
 pub const CTRL_U: char = '\u{15}';
+
+pub const PROMPT: &'static str = "Match: ";

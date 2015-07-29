@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 
 use term::terminfo::TermInfo;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::*;
 
 use std::sync::mpsc::{Receiver, Sender};
 use std::borrow::{Cow, Borrow};
@@ -308,7 +308,7 @@ impl UI {
 
         // draw our prompt and save the cursor
         debug!("Drawing prompt");
-        match write!(output, "Match: {}",
+        match write!(output, "{}{}", PROMPT,
                      self.control.get_string("sc".to_owned(), vec![]).unwrap_or(format!(""))) {
             Err(e) => return Err(StringError::new("Failed to draw prompt", Some(Box::new(e)))),
             Ok(_) => {
@@ -370,7 +370,7 @@ impl UI {
                     for item in matches.into_iter() {
                         if UnicodeWidthStr::width(item.as_ref()) > self.size.cols {
                             let mut owned = item.into_owned();
-                            while UnicodeWidthStr::width((&owned as &AsRef<str>).as_ref()) > self.size.cols {
+                            while UnicodeWidthStr::width(owned.as_str()) > self.size.cols {
                                 // truncate long lines
                                 owned.pop();
                             }
@@ -420,6 +420,25 @@ impl UI {
                                 // exit
                                 break;
                             },
+                            CTRL_U => {
+                                // move query.len() left, clear to end of screen
+                                match write!(output, "{}{}",
+                                             self.control.get_string("cub".to_owned(),
+                                                                     vec![TermStack::Int(query.len() as isize)])
+                                             .unwrap_or(format!("")),
+                                             self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
+                                    Err(e) => return Err(StringError::new("Failed to create space", Some(Box::new(e)))),
+                                    Ok(_) => {
+                                        trace!("Successfully created space on terminal");
+                                    }
+                                }
+
+                                // clear the query
+                                query.clear();
+
+                                // clear the best match
+                                best_match = None;
+                            },
                             '\n' => {
                                 // exit
                                 break;
@@ -436,27 +455,39 @@ impl UI {
                             }
                         }
                     } else {
-                        // push the character onto the query string
-                        query.push(chr);
+                        if UnicodeWidthStr::width(query.as_str()) + UnicodeWidthStr::width(PROMPT) +
+                            UnicodeWidthChar::width(chr).unwrap_or(0) >= self.size.cols {
+                                // don't allow users to type past the end of one line
+                                // \u{7} is BEL
+                                match write!(output, "\u{7}") {
+                                    Err(e) => return Err(StringError::new("Failed to output bell character", Some(Box::new(e)))),
+                                    Ok(_) => {
+                                        trace!("Successfully outputted bel character");
+                                    }
+                                }
+                        } else {
+                            // push the character onto the query string
+                            query.push(chr);
 
-                        // draw the character, save the cursor position, clear the screen after us
-                        match write!(output, "{}{}{}", chr,
-                                     self.control.get_string("sc".to_owned(), vec![]).unwrap_or(format!("")),
-                                     self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
-                            Err(e) => return Err(StringError::new("Failed to output character", Some(Box::new(e)))),
-                            Ok(_) => {
-                                trace!("Outputted character successfully");
+                            // draw the character, save the cursor position, clear the screen after us
+                            match write!(output, "{}{}{}", chr,
+                                         self.control.get_string("sc".to_owned(), vec![]).unwrap_or(format!("")),
+                                         self.control.get_string("clr_eos".to_owned(), vec![]).unwrap_or(format!(""))) {
+                                Err(e) => return Err(StringError::new("Failed to output character", Some(Box::new(e)))),
+                                Ok(_) => {
+                                    trace!("Outputted character successfully");
+                                }
                             }
-                        }
 
-                        // send the search thread our query
-                        debug!("Sending {} to search thread", &query);
-                        match self.query.send(query.clone()) {
-                            Ok(_) => {
-                                trace!("Send successful");
-                            },
-                            Err(e) => {
-                                return Err(StringError::new("Failed to send to search thread", Some(Box::new(e))));
+                            // send the search thread our query
+                            debug!("Sending {} to search thread", &query);
+                            match self.query.send(query.clone()) {
+                                Ok(_) => {
+                                    trace!("Send successful");
+                                },
+                                Err(e) => {
+                                    return Err(StringError::new("Failed to send to search thread", Some(Box::new(e))));
+                                }
                             }
                         }
                     }
