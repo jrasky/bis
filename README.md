@@ -7,5 +7,5 @@ Not documented, not the prettiest code, but it works.
 Usage is pretty simple:
  - type characters, bis will try to match them to a line
  - if you see a line you like, press enter, and bis will return and put the line on your prompt (but won't press enter)
- - if you change your mind, press C-d or C-c. Bis will put what it would have matched to, if anything, but it won't be put on your prompt.
- - if you want to start over, pruss C-u to clear the line
+ - if you change your mind, press ```C-d``` or ```C-c```. Bis will put what it would have matched to, if anything, but it won't be put on your prompt.
+ - if you want to start over, pruss ```C-u``` to clear the line
